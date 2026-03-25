@@ -35,47 +35,54 @@ public class VisitorServiceImpl implements VisitorService {
     private ModelMapper modelMapper;
 
     // 🔷 1. Register Visitor + First Visit
-    @Override
-    public VisitorResponseDto registerVisitor(VisitorWithVisitRequestDto dto) {
+@Override
+public VisitorResponseDto registerVisitor(VisitorWithVisitRequestDto dto) {
 
-        // Convert Visitor DTO → Entity
-        Visitor visitor = modelMapper.map(dto.getVisitor(), Visitor.class);
+    Visitor visitor = modelMapper.map(dto.getVisitor(), Visitor.class);
 
-        // Generate Unique ID
-        visitor.setUniqueId(generateUniqueId());
+    visitor.setUniqueId(generateUniqueId());
+    visitor.setStatus(VisitorStatus.PENDING); // ✅ correct
+    visitor.setCreatedAt(LocalDateTime.now());
 
-        visitor.setStatus(VisitorStatus.PENDING);
-        visitor.setCreatedAt(LocalDateTime.now());
+    Visitor savedVisitor = visitorRepository.save(visitor);
 
-        // Save Visitor
-        Visitor savedVisitor = visitorRepository.save(visitor);
+    // Create visit WITHOUT check-in
+    VisitRecord visit = new VisitRecord();
 
-        // Create Visit
-        VisitRecord visit = createVisit(dto.getVisit(), savedVisitor);
+    visit.setVisitor(savedVisitor);
+    visit.setReasonForVisit(dto.getVisit().getReasonForVisit());
+    visit.setVisitNotes(dto.getVisit().getVisitNotes());
+    visit.setGatePassDuration(dto.getVisit().getGatePassDuration());
+    visit.setGatePassTemplate(dto.getVisit().getGatePassTemplate());
 
-        // Update status
-        savedVisitor.setStatus(VisitorStatus.CHECKED_IN);
 
-        visitRecordRepository.save(visit);
 
-        return mapToVisitorResponse(savedVisitor);
-    }
+    visitRecordRepository.save(visit);
+
+    return mapToVisitorResponse(savedVisitor);
+}
 
     // 🔷 2. Add New Visit
-    @Override
-    public VisitResponseDto addVisit(Integer visitorId, VisitRequestDto dto) {
+@Override
+public VisitResponseDto addVisit(Integer visitorId, VisitRequestDto dto) {
 
-        Visitor visitor = visitorRepository.findById(visitorId)
-                .orElseThrow(() -> new RuntimeException("Visitor not found"));
+    Visitor visitor = visitorRepository.findById(visitorId)
+            .orElseThrow(() -> new RuntimeException("Visitor not found"));
 
-        VisitRecord visit = createVisit(dto, visitor);
+    VisitRecord visit = new VisitRecord();
 
-        visitor.setStatus(VisitorStatus.CHECKED_IN);
+    visit.setVisitor(visitor);
+    visit.setReasonForVisit(dto.getReasonForVisit());
+    visit.setVisitNotes(dto.getVisitNotes());
+    visit.setGatePassDuration(dto.getGatePassDuration());
+    visit.setGatePassTemplate(dto.getGatePassTemplate());
 
-        visitRecordRepository.save(visit);
+  
 
-        return modelMapper.map(visit, VisitResponseDto.class);
-    }
+    visitRecordRepository.save(visit);
+
+    return modelMapper.map(visit, VisitResponseDto.class);
+}
 
     // 🔷 3. Get All Visitors
     @Override
