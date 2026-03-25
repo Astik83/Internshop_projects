@@ -1,9 +1,10 @@
 
-# Visitor Management & Gate Pass Automation – Technical Specification
+
+# Visitor Management & Gate Pass Automation – Technical Specification (Updated)
 
 ## 1. Core Entities, Attributes, and Relationships
 
-The data model is built around four main entities:
+The data model is built around five main entities (Role, User, Visitor, VisitRecord, SystemConfig). The key change is that `reasonForVisit` and visit‑specific notes now reside in `VisitRecord`.
 
 ### 1.1 Role
 | Attribute       | Type     | Description                              |
@@ -32,7 +33,7 @@ The data model is built around four main entities:
 
 ---
 
-### 1.3 Visitor
+### 1.3 Visitor (Permanent Information)
 | Attribute         | Type     | Description                              |
 |-------------------|----------|------------------------------------------|
 | `VisitorID` (PK)  | Integer  | Internal unique identifier               |
@@ -41,8 +42,7 @@ The data model is built around four main entities:
 | `Company`         | String   | Company name                             |
 | `ContactNumber`   | String   | Phone number (validated format)          |
 | `Email`           | String   | Email address (validated)                |
-| `ReasonForVisit`  | String   | Predefined or free‑text reason           |
-| `Notes`           | String   | Optional additional information          |
+| `Notes`           | String   | General notes about the visitor (e.g., “VIP client”) |
 | `Status`          | String   | `Pending`, `Checked‑In`, `Checked‑Out`, `Expired` |
 | `CreatedAt`       | DateTime | Registration timestamp                   |
 | `CreatedBy` (FK)  | Integer  | References `User` who registered them    |
@@ -51,11 +51,13 @@ The data model is built around four main entities:
 
 ---
 
-### 1.4 VisitRecord
+### 1.4 VisitRecord (Visit‑Specific Information)
 | Attribute               | Type     | Description                              |
 |-------------------------|----------|------------------------------------------|
 | `RecordID` (PK)         | Integer  | Unique identifier for each visit instance|
 | `VisitorID` (FK)        | Integer  | References `Visitor`                     |
+| `ReasonForVisit`        | String   | Reason for this specific visit (e.g., “Business Meeting”, “Training”) |
+| `VisitNotes`            | String   | Optional notes for this specific visit   |
 | `GatePassDuration`      | Integer  | Duration in hours (e.g., 1, 4)           |
 | `GatePassTemplate`      | String   | e.g., `Standard`, `Premium`              |
 | `EntryTime`             | DateTime | Time when visitor checked in             |
@@ -79,8 +81,6 @@ Role ────< User ────< Visitor ────< VisitRecord
 
 ## 2. User Interface by Role
 
-The application will have role‑specific dashboards to show only the features relevant to each user type.
-
 ### 2.1 Receptionist UI
 - **Dashboard:**  
   - Prominent “Quick Register New Visitor” button.  
@@ -88,13 +88,14 @@ The application will have role‑specific dashboards to show only the features r
   - Small search bar for quick lookups.
 
 - **Visitor Registration Form:**  
-  - Card‑based form with fields: Name, Company, Reason for Visit (dropdown), Contact Number, Email, Notes.  
-  - After submission, auto‑generated `UniqueID` is displayed.  
-  - Option to set **Gate Pass Duration** (dropdown: 1h, 2h, 4h, Custom).
+  - Card‑based form with fields: **Name**, **Company**, **Contact Number**, **Email**, **General Notes** (optional).  
+  - Separate section for **Visit Details**: **Reason for Visit** (dropdown), **Visit Notes** (optional), and **Gate Pass Duration** (dropdown: 1h, 2h, 4h, Custom).  
+  - After submission, auto‑generated `UniqueID` is displayed.
 
 - **Visitor Management:**  
   - Table view of all visitors they created.  
-  - **Edit Visitor** modal to update contact details or reason for visit (US 13).
+  - **Edit Visitor** modal to update permanent visitor details (name, company, contact, email, general notes) – *not* visit‑specific fields.  
+  - Option to **Add New Visit** for a repeat visitor, allowing a new reason and duration.
 
 ### 2.2 Security Officer UI
 - **Dashboard:**  
@@ -104,14 +105,15 @@ The application will have role‑specific dashboards to show only the features r
 
 - **Visitor Search Panel:**  
   - Table of search results with sorting & pagination.  
-  - Each row has an “Action” button → “View & Print Gate Pass”.
+  - Each row has an “Action” button → “View & Print Gate Pass” for the **latest visit**.
 
 - **Visitor Record Display:**  
   - Detailed view with large `Visitor Name` and `UniqueID`.  
   - Color‑coded status indicator (Green = Checked‑In, Red = Expired, Gray = Pending) (US 09).  
   - **Check‑In / Check‑Out** buttons (US 06).  
   - Gate pass section with **Print** button (US 05), countdown timer, and “Expired” indicator (US 11).  
-  - Option to send email notification upon check‑in (US 07).
+  - Option to send email notification upon check‑in (US 07).  
+  - History of past visits (each with its own reason, dates, and duration).
 
 ### 2.3 System Administrator UI
 - **Dashboard:**  
@@ -130,10 +132,10 @@ The application will have role‑specific dashboards to show only the features r
 
 ## 3. API Endpoints with Request/Response Examples
 
-All endpoints are prefixed with `/api/v1/`. Authentication is performed via JWT (in `Authorization` header).  
-`{visitorId}` refers to the internal primary key; `uniqueId` is the auto‑generated alphanumeric identifier displayed on gate passes.
+All endpoints are prefixed with `/api/v1/`. Authentication via JWT.
 
 ### 3.1 Authentication & User Management
+*(unchanged)*
 
 | Method | Endpoint | Description | Request Body (JSON) | Response (JSON) |
 |--------|----------|-------------|---------------------|-----------------|
@@ -147,27 +149,30 @@ All endpoints are prefixed with `/api/v1/`. Authentication is performed via JWT 
 
 | Method | Endpoint | Description | Request Body (JSON) | Response (JSON) |
 |--------|----------|-------------|---------------------|-----------------|
-| `POST` | `/visitors` | Register a new visitor (US 01, US 04) | `{ "name": "string (req)", "company": "string (req)", "reasonForVisit": "string (req)", "contactNumber": "string (req)", "email": "string (req, valid)", "notes": "string (opt)", "gatePassDuration": integer (opt, hours) }` | Full visitor object (includes auto‑generated `uniqueId`) |
+| `POST` | `/visitors` | Register a new visitor **with an initial visit** (US 01, US 04). | `{ "name": "string (req)", "company": "string (req)", "contactNumber": "string (req)", "email": "string (req)", "notes": "string (opt)", "reasonForVisit": "string (req)", "visitNotes": "string (opt)", "gatePassDuration": integer (opt) }` | Visitor object with `visitRecords` array containing the initial visit. `uniqueId` auto‑generated. |
+| `POST` | `/visitors/{visitorId}/visits` | Add a **new visit** for an existing visitor (repeat visit). | `{ "reasonForVisit": "string (req)", "visitNotes": "string (opt)", "gatePassDuration": integer (opt) }` | The newly created `VisitRecord` object. |
 | `GET` | `/visitors` | Paginated list of visitors | Query params: `page`, `limit`, `sortBy`, `order`, `status` (opt) | `{ "visitors": [ ... ], "total": integer, "page": integer, "limit": integer }` |
 | `GET` | `/visitors/search?q={term}` | Search by name or `uniqueId` (US 02) | Query param: `q` | `{ "visitors": [ { "visitorId": integer, "name": "...", "uniqueId": "...", "company": "...", "status": "..." } ] }` |
-| `GET` | `/visitors/{visitorId}` | Get detailed visitor info | — | Full visitor object (includes latest `visitRecord` if exists) |
-| `PUT` | `/visitors/{visitorId}` | Update visitor info (US 13) | `{ "name": "string (opt)", "company": "string (opt)", "reasonForVisit": "string (opt)", "contactNumber": "string (opt)", "email": "string (opt)", "notes": "string (opt)" }` | Updated visitor object |
+| `GET` | `/visitors/{visitorId}` | Get detailed visitor info (including all visit records) | — | Full visitor object with `visitRecords` list. |
+| `PUT` | `/visitors/{visitorId}` | Update **permanent visitor info** (US 13) – not visit‑specific. | `{ "name": "string (opt)", "company": "string (opt)", "contactNumber": "string (opt)", "email": "string (opt)", "notes": "string (opt)" }` | Updated visitor object. |
+| `PUT` | `/visitors/{visitorId}/visits/{recordId}` | Update a specific visit (e.g., reason, notes) – optional. | `{ "reasonForVisit": "string (opt)", "visitNotes": "string (opt)", "gatePassDuration": integer (opt) }` | Updated `VisitRecord` object. |
 
 ### 3.3 Visit & Gate Pass Management
 
 | Method | Endpoint | Description | Request Body (JSON) | Response (JSON) |
 |--------|----------|-------------|---------------------|-----------------|
-| `POST` | `/visitors/{visitorId}/checkin` | Record entry time (US 06). May trigger email notification (US 07). | `{ "gatePassDuration": integer (opt, hours), "gatePassTemplate": "string (opt, e.g., 'Standard')" }` | `{ "visitRecordId": integer, "visitorId": integer, "entryTime": "ISO timestamp", "gatePassDuration": integer, "gatePassTemplate": "...", "gatePassExpiryTime": "ISO timestamp", "status": "Checked‑In" }` |
-| `PUT` | `/visitors/{visitorId}/checkout` | Record exit time (US 06) | — | `{ "visitRecordId": integer, "exitTime": "ISO timestamp", "status": "Checked‑Out" }` |
-| `POST` | `/visitors/{visitorId}/gate-pass` | Generate / regenerate gate pass (US 05, US 10) | `{ "duration": integer (opt, hours), "template": "string (opt)" }` | `{ "gatePassData": { "visitorName": "...", "visitorId": "...", "company": "...", "dateTime": "...", "expiryTime": "...", "status": "Active" } }` |
-| `GET` | `/visitors/{visitorId}/gate-pass` | Get latest gate pass (includes expiry status, US 11) | — | Same as above; `status` may be `"Expired"` if expiry time passed |
+| `POST` | `/visitors/{visitorId}/visits/{recordId}/checkin` | Record entry time for a specific visit (US 06). May trigger email notification (US 07). | `{ "gatePassDuration": integer (opt, overrides), "gatePassTemplate": "string (opt)" }` | Updated `VisitRecord` with `entryTime`, `gatePassExpiryTime`. Visitor status updated to `Checked‑In`. |
+| `PUT` | `/visitors/{visitorId}/visits/{recordId}/checkout` | Record exit time for a specific visit (US 06). | — | Updated `VisitRecord` with `exitTime`. Visitor status updated to `Checked‑Out` (if no other active visits). |
+| `POST` | `/visitors/{visitorId}/visits/{recordId}/gate-pass` | Generate / regenerate gate pass for a specific visit (US 05, US 10). | `{ "duration": integer (opt, hours), "template": "string (opt)" }` | `{ "gatePassData": { "visitorName": "...", "visitorId": "...", "company": "...", "reason": "...", "dateTime": "...", "expiryTime": "...", "status": "Active" } }` |
+| `GET` | `/visitors/{visitorId}/visits/{recordId}/gate-pass` | Get latest gate pass for a specific visit (includes expiry status, US 11). | — | Same as above; `status` may be `"Expired"` if expiry time passed. |
 
 ### 3.4 Reporting & Configuration
+*(unchanged except that reports now include visit‑level data)*
 
 | Method | Endpoint | Description | Request Body (JSON) | Response (JSON) |
 |--------|----------|-------------|---------------------|-----------------|
-| `GET` | `/reports/visitors` | Visitor count trends (US 12) | Query params: `groupBy` = `day`\|`week`\|`month`, `startDate`, `endDate` (ISO dates) | `{ "data": [ { "period": "2025-03-25", "count": 15 }, ... ] }` |
-| `GET` | `/reports/visitors/export` | Export visitor data to CSV (US 08) | Query params: `startDate`, `endDate`, `status` (opt) | Returns CSV file (Content‑Disposition: attachment) |
+| `GET` | `/reports/visitors` | Visitor count trends based on visit records (US 12) | Query params: `groupBy` = `day`\|`week`\|`month`, `startDate`, `endDate` | `{ "data": [ { "period": "2025-03-25", "count": 15 }, ... ] }` |
+| `GET` | `/reports/visitors/export` | Export visit data to CSV (US 08). | Query params: `startDate`, `endDate`, `status` (opt) | Returns CSV file (Content‑Disposition: attachment) |
 | `GET` | `/config` | Get system configuration | — | `{ "defaultGatePassDuration": 4, "notificationEmail": "security@company.com", "allowedDurations": [1,2,4,8], "gatePassTemplates": ["Standard","Premium"] }` |
 | `PUT` | `/config` | (Admin) Update system configuration (US 10) | `{ "defaultGatePassDuration": integer (opt), "notificationEmail": "string (opt)", "allowedDurations": [integer] (opt), "gatePassTemplates": ["string"] (opt) }` | Updated config object |
 
@@ -175,11 +180,10 @@ All endpoints are prefixed with `/api/v1/`. Authentication is performed via JWT 
 
 ## 4. Data Type Notes
 - **Timestamps:** ISO 8601 format (e.g., `"2025-03-25T14:30:00Z"`).  
-- **IDs:** `visitorId` and `userId` are integers (or UUIDs).  
+- **IDs:** `visitorId`, `userId`, `recordId` are integers (or UUIDs).  
 - **UniqueID:** Alphanumeric, e.g., `"V202503250001"`.  
-- **Status Values:** `"Pending"`, `"Checked‑In"`, `"Checked‑Out"`, `"Expired"`.
+- **Status Values:** `"Pending"`, `"Checked‑In"`, `"Checked‑Out"`, `"Expired"`.  
+- **ReasonForVisit:** Predefined options (e.g., “Business Meeting”, “Client Visit”, “Interview”, “Delivery”) or free text.
 
 ---
 
-This specification provides a solid foundation for development. It clearly defines the data model, role‑based interfaces, and the exact API contracts needed to implement the Visitor Management and Gate Pass Automation system.
-```
