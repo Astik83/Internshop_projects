@@ -1,11 +1,9 @@
 
 
-# Visitor Management & Gate Pass Automation – Final Technical Specification
-
 ## 1. Core Entities, Attributes, and Relationships
 
 The data model consists of five main entities: **Role**, **User**, **Visitor**, **VisitRecord**, and **SystemConfig**.  
-The key design decision is that every **visit** (check‑in) has its own `reasonForVisit` and `visitNotes`, allowing a single visitor to have multiple visits with different purposes.
+Each **VisitRecord** captures a single visit and contains the reason for that visit, visit‑specific notes, and the gate pass duration.
 
 ### 1.1 Role
 | Attribute       | Type     | Description                              |
@@ -44,9 +42,17 @@ The key design decision is that every **visit** (check‑in) has its own `reason
 | `ContactNumber`   | String   | Phone number (validated format)          |
 | `Email`           | String   | Email address (validated)                |
 | `Notes`           | String   | General notes about the visitor (e.g., “VIP client”) |
-| `Status`          | String   | `Pending`, `Checked‑In`, `Checked‑Out`, `Expired` |
+| `Status`          | String   | `Pending`, `Checked‑In`, `Checked‑Out`, `Expired` – **current overall status** derived from the most recent active visit |
 | `CreatedAt`       | DateTime | Registration timestamp                   |
 | `CreatedBy` (FK)  | Integer  | References `User` who registered them    |
+
+**Notes on Status:**  
+- `Visitor.status` is maintained automatically by the system.  
+- On check‑in: set to `Checked‑In`.  
+- On check‑out: set to `Checked‑Out`.  
+- A background job runs periodically to change any `Checked‑In` visitors whose `gatePassExpiryTime` has passed to `Expired`.  
+- If no visits exist, status is `Pending`.  
+- This field allows quick filtering and display without joining the `VisitRecord` table.
 
 **Relationships:** Many `Visitors` can be created by one **User**; one `Visitor` can have many **VisitRecords**.
 
@@ -108,6 +114,7 @@ The UI is role‑based, showing only relevant features for each user type.
 
 - **Visitor Search Panel:**  
   - Table of search results with sorting & pagination.  
+  - Each row shows: Visitor Name, Unique ID, Company, Current Status, and **Reason / Duration of the most recent visit**.  
   - Each row has an “Action” button → “View & Print Gate Pass” for the **latest visit**.
 
 - **Visitor Record Display:**  
@@ -116,7 +123,7 @@ The UI is role‑based, showing only relevant features for each user type.
   - **Check‑In / Check‑Out** buttons (US 06).  
   - Gate pass section with **Print** button (US 05), countdown timer, and “Expired” indicator (US 11).  
   - Option to send email notification upon check‑in (US 07).  
-  - History of past visits (each with its own reason, dates, and duration).
+  - **Visit History** section listing all past visits (each with reason, entry/exit times, duration, and status at that time).
 
 ### 2.3 System Administrator UI
 - **Dashboard:**  
@@ -173,11 +180,11 @@ All endpoints are prefixed with `/api/v1/`. Authentication is performed via JWT 
 
 | Method | Endpoint | Description | Request Body (JSON) | Response (JSON) |
 |--------|----------|-------------|---------------------|-----------------|
-| `POST` | `/visitors` | Register a new visitor **with an initial visit** (US 01, US 04). | `{ "name": "string (req)", "company": "string (req)", "contactNumber": "string (req)", "email": "string (req)", "notes": "string (opt)", "reasonForVisit": "string (req)", "visitNotes": "string (opt)", "gatePassDuration": integer (opt) }` | Visitor object with `visitRecords` array containing the initial visit. `uniqueId` auto‑generated. |
+| `POST` | `/visitors` | Register a new visitor **with an initial visit** (US 01, US 04). | `{ "visitor": { "name": "string (req)", "company": "string (req)", "contactNumber": "string (req)", "email": "string (req)", "notes": "string (opt)" }, "visit": { "reasonForVisit": "string (req)", "visitNotes": "string (opt)", "gatePassDuration": integer (opt) } }` | Visitor object with `visitRecords` array containing the initial visit. `uniqueId` auto‑generated. |
 | `POST` | `/visitors/{visitorId}/visits` | Add a **new visit** for an existing visitor (repeat visit). | `{ "reasonForVisit": "string (req)", "visitNotes": "string (opt)", "gatePassDuration": integer (opt) }` | The newly created `VisitRecord` object. |
-| `GET` | `/visitors` | Paginated list of visitors | Query params: `page`, `limit`, `sortBy`, `order`, `status` (opt) | `{ "visitors": [ ... ], "total": integer, "page": integer, "limit": integer }` |
-| `GET` | `/visitors/search?q={term}` | Search by name or `uniqueId` (US 02) | Query param: `q` | `{ "visitors": [ { "visitorId": integer, "name": "...", "uniqueId": "...", "company": "...", "status": "..." } ] }` |
-| `GET` | `/visitors/{visitorId}` | Get detailed visitor info (including all visit records) | — | Full visitor object with `visitRecords` list. |
+| `GET` | `/visitors` | Paginated list of visitors | Query params: `page`, `limit`, `sortBy`, `order`, `status` (opt) | `{ "visitors": [ { ... visitor fields, plus `latestVisit` (optional) } ], "total": integer, "page": integer, "limit": integer }` |
+| `GET` | `/visitors/search?q={term}` | Search by name or `uniqueId` (US 02). Returns visitors with their current status and the most recent visit details. | Query param: `q` | `{ "visitors": [ { "visitorId": integer, "name": "...", "uniqueId": "...", "company": "...", "status": "...", "latestVisit": { "recordId": integer, "reasonForVisit": "...", "entryTime": "...", "gatePassDuration": integer } } ] }` |
+| `GET` | `/visitors/{visitorId}` | Get detailed visitor info (including all visit records sorted by entryTime descending) | — | Full visitor object with `visitRecords` list. |
 | `PUT` | `/visitors/{visitorId}` | Update **permanent visitor info** (US 13) – not visit‑specific. | `{ "name": "string (opt)", "company": "string (opt)", "contactNumber": "string (opt)", "email": "string (opt)", "notes": "string (opt)" }` | Updated visitor object. |
 | `PUT` | `/visitors/{visitorId}/visits/{recordId}` | Update a specific visit (e.g., reason, notes) – optional. | `{ "reasonForVisit": "string (opt)", "visitNotes": "string (opt)", "gatePassDuration": integer (opt) }` | Updated `VisitRecord` object. |
 
@@ -229,4 +236,4 @@ All endpoints are prefixed with `/api/v1/`. Authentication is performed via JWT 
 
 ---
 
-This specification provides a complete foundation for development, aligning the data model, UI, API contracts, gate pass design, and error handling with the original requirements.
+This specification now fully addresses the multiple‑visit scenario and clarifies the use of `Visitor.status`. The API and UI descriptions are consistent, and the nested request for visitor registration properly separates permanent visitor data from visit‑specific data.
