@@ -1,5 +1,66 @@
+## Role Enum
+```java
+public enum RoleType {
+    ADMIN,
+    RECEPTIONIST,
+    SECURITY
+}
+```
+
+## ROle DTO
+
+```java
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+public class RoleDTO {
+
+    private Integer roleId;
+
+    @NotNull(message = "Role name is required")
+    private RoleType roleName;
+
+    @Size(max = 255, message = "Description cannot exceed 255 characters")
+    private String description;
+
+    // getters & setters
+}
 
 
+```
+## user Dto
+
+```java
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+public class UserDTO {
+
+    private Integer userId;
+
+    @NotBlank(message = "Name is required")
+    @Size(min = 2, max = 100, message = "Name must be between 2 and 100 characters")
+    private String name;
+
+    @NotBlank(message = "Email is required")
+    @Email(message = "Invalid email format")
+    private String email;
+
+    @NotBlank(message = "Password is required")
+    @Size(min = 6, message = "Password must be at least 6 characters")
+    private String password;
+
+    @NotNull(message = "Role ID is required")
+    private Integer roleId;
+
+    private RoleType roleName;
+
+    // getters & setters
+}
+
+```
 ## 🔷 1. VisitorRequestDto (Create / Update Visitor)
 
 **Used for:**
