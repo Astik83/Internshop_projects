@@ -30,28 +30,32 @@ public class Role {
 ## 2. User Entity
 
 ```java
+package com.vms.entity;
+
+import jakarta.persistence.*;
+import lombok.*;
+
 @Entity
-@Table(name = "roles")
-public class Role {
+@Table(name = "users")
+public class User {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer roleId;
+    private Integer userId;
+
+    @Column(nullable = false, length = 100)
+    private String name;
 
     @Column(nullable = false, unique = true)
-    private String roleName;
+    private String email;
 
-    private String description;
+    // 🔐 Stored as hashed password in DB
+    @Column(name = "password_hash", nullable = false)
+    private String passwordHash;
 
-    // Optional (if you want JSON permissions later)
-    // @Column(columnDefinition = "JSON")
-    // private String permissions;
-
-    // One Role → Many Users (optional mapping)
-    @OneToMany(mappedBy = "role", fetch = FetchType.LAZY)
-    private List<User> users = new ArrayList<>();
-
-    // getters & setters
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "role_id", nullable = false)
+    private Role role;
 }
 ```
 
